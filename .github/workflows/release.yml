@@ -13,7 +13,8 @@ jobs:
 
       - name: Download musl cross-compiler toolchain
         run: |
-          wget https://musl.cc/aarch64-linux-musl-cross.tgz
+          # wget https://musl.cc/aarch64-linux-musl-cross.tgz
+          wget https://github.com/ahaoboy/aarch64-linux-musl-cross-build/releases/download/v0.1.0/aarch64-linux-musl-cross.tgz
           tar xzf aarch64-linux-musl-cross.tgz
           echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
 
