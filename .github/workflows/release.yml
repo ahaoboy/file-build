@@ -1,90 +1,53 @@
-name: release
+name: Build and Release file for arm64-musl
 
 on:
   push:
 
 jobs:
   build:
-    name: Build file (libmagic) for arm64-musl
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install musl & cross toolchain
+      - name: Download musl cross-compiler toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu musl-dev qemu-user-static
-      - name: Setup musl aarch64
-        shell: bash
+          wget https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar xzf aarch64-linux-musl-cross.tgz
+          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+
+      - name: Download and extract file source code
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            curl \
-            libc6-arm64-cross \
-            libc6-dev-arm64-cross \
-            crossbuild-essential-arm64 \
-            clang \
-            qemu-system-arm \
-            qemu-efi-aarch64 \
-            qemu-utils \
-            qemu-user
+          curl -O ftp://ftp.astron.com/pub/file/file-5.46.tar.gz
+          tar xzf file-5.46.tar.gz
+          cd file-5.46
 
-          curl -L https://github.com/ahaoboy/aarch64-linux-musl-cross-build/releases/latest/download/aarch64-linux-musl-cross.tgz | tar xzf -
-          sudo mv aarch64-linux-musl-cross /musl
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y automake autoconf libtool
 
-          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-          echo "CXX_aarch64_unknown_linux_musl=aarch64-linux-musl-g++" >> $GITHUB_ENV
-          echo "AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER=qemu-aarch64" >> $GITHUB_ENV
-
-          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER=qemu-aarch64" >> $GITHUB_ENV
-
-          echo "LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
-
-          sudo ln -s /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 /lib/ld-linux-aarch64.so.1
-
-          mkdir -p ~/.cargo/
-          echo "[target.aarch64-unknown-linux-musl]" >> ~/.cargo/config.toml
-          echo 'rustflags = ["-C", "link-self-contained=yes","-C", "linker=rust-lld"]' >> ~/.cargo/config.toml
-          echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
-          echo 'rustflags = ["-C", "linker=aarch64-linux-gnu-gcc"]' >> ~/.cargo/config.toml
-
-          echo "/musl/bin" >> $GITHUB_PATH
-
-      - name: Download file source code
+      - name: Configure for cross-compilation
+        working-directory: file-5.46
         run: |
-          curl -LO https://astron.com/pub/file/file-5.46.tar.gz
-          tar xf file-5.46.tar.gz
-          mv file-5.46 file-src
+          autoreconf -f -i
+          ./configure --host=aarch64-linux-musl --prefix=$PWD/install CC=aarch64-linux-musl-gcc CFLAGS="-static"
 
-      - name: Configure for musl-cross
-        working-directory: file-src
-        run: |
-          CC="aarch64-linux-gnu-gcc -static --sysroot=/usr/aarch64-linux-gnu" \
-          ./configure --host=aarch64-linux-musl --enable-static
+      - name: Build and install
+        working-directory: file-5.46
+        run: make && make install
 
-      - name: Build
-        working-directory: file-src
+      - name: Package the binary and magic database
         run: |
-          make -j$(nproc)
-          ls -lh src/file
-
-      - name: Rename output
-        run: |
-          mv file-src/src/file file-arm64-musl
+          mkdir -p release
+          cp file-5.46/install/bin/file release/
+          cp file-5.46/install/share/misc/magic.mgc release/
+          tar czf file-arm64-musl.tar.gz -C release .
 
       - name: release nightly
         uses: ncipollo/release-action@v1
         with:
           tag: "nightly"
-          artifacts: "file-arm64-musl"
+          artifacts: "file-*"
           allowUpdates: true
           makeLatest: false
           token: ${{ secrets.GITHUB_TOKEN }}
